@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Публикации</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #6a11cb, #2575fc);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 40px;
+            color: white;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background: rgba(0,0,0,0.6);
+        }
+        .modal-content {
+            background: #6a11cb;
+            margin: 10% auto;
+            padding: 20px;
+            border-radius: 10px;
+            width: 300px;
+            text-align: center;
+            color: white;
+        }
+        .close {
+            color: white;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .container {
+            display: flex;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+            width: 90%;
+            max-width: 1200px;
+        }
+        .articles {
+            flex: 2;
+            margin-right: 20px;
+        }
+        .filters {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 15px;
+            border-radius: 10px;
+            position: relative;
+
+
+        }
+        .article {
+            margin: 10px 0;
+            padding: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .article a {
+            color: white;
+            text-decoration: none;
+            font-size: 18px;
+        }
+        .article a:hover {
+            text-decoration: underline;
+        }
+        label {
+            margin-top: 10px;
+            display: block;
+        }
+        input[type="range"], input[type="text"] {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        button {
+            width: 100%;
+            margin-top: 10px;
+            padding: 10px;
+            border: none;
+            background: linear-gradient(135deg, #ff416c, #ff4b2b);
+            color: white;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        button:hover {
+            background: linear-gradient(135deg, #ff4b2b, #ff416c);
+        }
+        #author-suggestions {
+            background: white;
+            color: black;
+            position: absolute;
+            width: calc(100% - 30px);
+            max-height: 150px;
+            overflow-y: auto;
+            z-index: 10;
+            border-radius: 5px;
+        }
+        #author-suggestions div {
+            padding: 5px;
+            cursor: pointer;
+        }
+        #author-suggestions div:hover {
+            background: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+<div id="user-panel" style="text-align: center; margin-bottom: 20px;">
+    <button id="user-icon" onclick="toggleAuth()">👤</button>
+</div>
+<div id="map" style="height: 500px; border-radius: 15px; margin-bottom: 30px;"></div>
+<div id="modal-auth" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="toggleAuth()">&times;</span>
+
+        <div id="login-section">
+            <h2>Вход</h2>
+            <input type="text" id="username" placeholder="Логин">
+            <input type="password" id="password" placeholder="Пароль">
+            <button onclick="login()">Войти</button>
+            <button onclick="showRegister()" style="background: gray; margin-top: 10px;">Нет аккаунта? Зарегистрироваться</button>
+        </div>
+
+        <div id="register-section" style="display:none;">
+            <h2>Регистрация</h2>
+            <input type="text" id="new-username" placeholder="Новый логин">
+            <input type="password" id="new-password" placeholder="Новый пароль">
+            <button onclick="register()">Зарегистрироваться</button>
+            <button onclick="showLogin()" style="background: gray; margin-top: 10px;">Уже есть аккаунт? Войти</button>
+        </div>
+
+        <div id="welcome-section" style="display:none;">
+            <h2 id="welcome-message"></h2>
+            <button onclick="logout()">Выйти</button>
+        </div>
+    </div>
+</div>
+
+
+<div class="container">
+    <div class="articles" id="articles-list">Загрузка статей...</div>
+    <div class="filters">
+        <label>Поиск автора</label>
+        <input type="text" id="author-search" placeholder="Введите автора..." oninput="filterAuthors()" autocomplete="off">
+        <div id="author-suggestions"></div>
+
+        <label>Ключевые слова</label>
+        <input type="range" id="keywords-range">
+        <span id="keywords-value"></span>
+
+        <label>Изображения</label>
+        <input type="range" id="figures-range">
+        <span id="figures-value"></span>
+
+        <label>Таблицы</label>
+        <input type="range" id="tables-range">
+        <span id="tables-value"></span>
+
+        <button onclick="applyFilters()">Применить</button>
+        <button onclick="resetFilters()" style="background: gray;">Сбросить</button>
+
+        <hr style="margin: 20px 0;">
+        <label>Поиск по аннотациям и заголовкам</label>
+        <input type="text" id="semantic-query" placeholder="Введите запрос...">
+        <button onclick="semanticSearch()">Найти статьи</button>
+
+    </div>
+</div>
+
+<script>
+let isLoggedIn = false;
+let allArticles = [];
+let filters = {};
+let allAuthors = [];
+
+function toggleAuth() {
+    const modal = document.getElementById('modal-auth');
+    modal.style.display = modal.style.display === 'block' ? 'none' : 'block';
+}
+
+function showRegister() {
+    document.getElementById('login-section').style.display = 'none';
+    document.getElementById('register-section').style.display = 'block';
+}
+
+function showLogin() {
+    document.getElementById('register-section').style.display = 'none';
+    document.getElementById('login-section').style.display = 'block';
+}
+window.addEventListener('DOMContentLoaded', () => {
+    const user = localStorage.getItem('loggedInUser');
+    if (user) {
+        isLoggedIn = true;
+        unlockService();
+        document.getElementById('welcome-section').style.display = 'block';
+        document.getElementById('welcome-message').textContent = `Привет, ${user}!`;
+    }
+});
+
+async function login() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value.trim();
+
+    const formData = new FormData();
+    formData.append('username', username);
+    formData.append('password', password);
+
+    try {
+        const response = await fetch('/login', { method: 'POST', body: formData });
+        if (response.ok) {
+            const data = await response.json();  // <-- Сначала получили ответ!
+            isLoggedIn = true;
+            localStorage.setItem('loggedInUser', data.username); // <-- Только теперь сохраняем!
+
+            document.getElementById('login-section').style.display = 'none';
+            document.getElementById('register-section').style.display = 'none';
+            document.getElementById('welcome-section').style.display = 'block';
+            document.getElementById('welcome-message').textContent = `Привет, ${data.username}!`;
+            unlockService();
+        } else {
+            alert("Ошибка входа. Неверный логин или пароль.");
+        }
+    } catch (error) {
+        console.error("Ошибка:", error);
+    }
+}
+
+
+async function register() {
+    const username = document.getElementById('new-username').value.trim();
+    const password = document.getElementById('new-password').value.trim();
+
+    const formData = new FormData();
+    formData.append('username', username);
+    formData.append('password', password);
+
+    try {
+        const response = await fetch('/register', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (response.ok) {
+            alert("Регистрация успешна! Теперь войдите.");
+            showLogin();
+        } else {
+            const error = await response.json();
+            alert("Ошибка регистрации: " + error.detail);
+        }
+    } catch (error) {
+        console.error("Ошибка:", error);
+    }
+}
+
+function logout() {
+    isLoggedIn = false;
+    lockService();
+    document.getElementById('modal-auth').style.display = 'none';
+    document.getElementById('welcome-section').style.display = 'none';
+    document.getElementById('login-section').style.display = 'block';
+    document.getElementById('username').value = "";
+    document.getElementById('password').value = "";
+    localStorage.removeItem('loggedInUser');
+
+}
+
+
+function lockService() {
+    document.getElementById('articles-list').style.pointerEvents = 'none';
+    document.querySelector('.filters').style.pointerEvents = 'none';
+    document.getElementById('articles-list').style.opacity = '0.5';
+    document.querySelector('.filters').style.opacity = '0.5';
+}
+
+function unlockService() {
+    document.getElementById('articles-list').style.pointerEvents = 'auto';
+    document.querySelector('.filters').style.pointerEvents = 'auto';
+    document.getElementById('articles-list').style.opacity = '1';
+    document.querySelector('.filters').style.opacity = '1';
+}
+
+async function loadArticles() {
+    const response = await fetch('/articles');
+    const data = await response.json();
+    allArticles = data.articles;
+    filters = data.filters;
+    setupFilters();
+    renderArticles(allArticles);
+}
+
+async function loadAuthors() {
+    const response = await fetch('/authors');
+    allAuthors = await response.json();
+}
+
+function setupFilters() {
+    setupRange('keywords', filters.keywords);
+    setupRange('figures', filters.figures);
+    setupRange('tables', filters.tables);
+}
+
+function setupRange(id, {min, max}) {
+    const range = document.getElementById(`${id}-range`);
+    const value = document.getElementById(`${id}-value`);
+    range.min = min;
+    range.max = max;
+    range.value = max;
+    value.textContent = max;
+    range.oninput = () => value.textContent = range.value;
+}
+
+function renderArticles(articles) {
+    const list = document.getElementById('articles-list');
+    list.innerHTML = '';
+    articles.forEach(article => {
+        const div = document.createElement('div');
+        div.className = 'article';
+        div.innerHTML = `<a href="/article/${article.id}">${article.title}</a>`;
+        list.appendChild(div);
+    });
+}
+
+function applyFilters() {
+    const authorInput = document.getElementById('author-search').value.toLowerCase();
+    const keywords = +document.getElementById('keywords-range').value;
+    const figures = +document.getElementById('figures-range').value;
+    const tables = +document.getElementById('tables-range').value;
+
+    const filtered = allArticles.filter(a =>
+        (authorInput === "" || (a.authors && a.authors.some(name => name.toLowerCase().includes(authorInput)))) &&
+        (a.keywords.length <= keywords) &&
+        (a.figures_count <= figures) &&
+        (a.tables_count <= tables)
+    );
+
+    renderArticles(filtered);
+    document.getElementById('author-suggestions').innerHTML = '';
+}
+
+function resetFilters() {
+    document.getElementById('author-search').value = "";
+    document.getElementById('author-suggestions').innerHTML = "";
+    setupFilters();
+    renderArticles(allArticles);
+}
+async function semanticSearch() {
+    const query = document.getElementById('semantic-query').value.trim();
+    if (!query) {
+        alert("Введите запрос для поиска.");
+        return;
+    }
+
+    try {
+        const response = await fetch('/semantic_search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ query: query })
+        });
+
+        if (response.ok) {
+            const articles = await response.json();
+            renderArticles(articles);
+        } else {
+            alert("Ошибка поиска.");
+        }
+    } catch (error) {
+        console.error("Ошибка:", error);
+    }
+}
+
+function filterAuthors() {
+    const input = document.getElementById('author-search');
+    const suggestions = document.getElementById('author-suggestions');
+    const value = input.value.toLowerCase();
+    suggestions.innerHTML = '';
+
+    if (value) {
+        const filtered = allAuthors.filter(author => {
+            const firstDot = author.indexOf('.');
+            const secondDot = author.indexOf('.', firstDot + 1);
+            if (secondDot !== -1) {
+                const lastName = author.slice(secondDot + 2).toLowerCase();
+                return lastName.startsWith(value);
+            }
+            return false;
+        });
+
+        filtered.forEach(author => {
+            const div = document.createElement('div');
+            div.textContent = author;
+            div.onclick = () => {
+                input.value = author;
+                suggestions.innerHTML = '';
+            };
+            suggestions.appendChild(div);
+        });
+    }
+}
+
+lockService();
+loadArticles();
+loadAuthors();
+</script>
+
+</body>
+</html>
