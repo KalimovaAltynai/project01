@@ -1,6 +1,12 @@
 import os
 import fitz  # PyMuPDF
 import re
+import sys
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from parser_tools import extract_toc_from_pdf, process_new_issue, parse_pdf_metadata
+
+
 from pod import save_to_db
 
 def parse_pdf_metadata(filepath, filename):
@@ -122,8 +128,8 @@ def parse_pdf_metadata(filepath, filename):
     }
 
 
-def process_folder(folder_path):
-    article_count = 0  # счётчик статей
+def process_folder(folder_path, issue_id):
+    article_count = 0
 
     for filename in os.listdir(folder_path):
         if filename.lower().endswith(".pdf"):
@@ -135,11 +141,11 @@ def process_folder(folder_path):
                 print(f"{key}: {value}")
             print("-" * 50)
 
-            save_to_db(data, filename)  # ⬅ вот здесь сохраняем в базу данных!
-            article_count += 1  # увеличиваем счётчик
+            save_to_db(data, filename, issue_id)
+            article_count += 1
 
     print(f"\n✅ Всего обработано статей: {article_count}")
 
 
-# ✅ Запуск
-process_folder("./articles")
+
+

@@ -10,14 +10,13 @@ conn = psycopg2.connect(
 conn.autocommit = True
 cursor = conn.cursor()
 
-
-def save_to_db(data, filename):
-    # 0. Проверка: есть ли уже такая статья
-    cursor.execute("SELECT id FROM articles WHERE title = %s", (data['title'],))
+def save_to_db(data, filename, issue_id):
+    # Проверка: есть ли уже такая статья с таким названием в этом же выпуске
+    cursor.execute("SELECT id FROM articles WHERE title = %s AND issue_id = %s", (data['title'], issue_id))
     existing_article = cursor.fetchone()
     if existing_article:
-        print(f"⚠️ Статья '{data['title']}' уже существует в базе данных, пропускаем вставку.")
-        return  # Если статья есть, просто выходим из функции
+        print(f"⚠️ Статья '{data['title']}' уже существует в выпуске ID {issue_id}, пропускаем.")
+        return
 
     # Университет
     cursor.execute("SELECT id FROM universities WHERE name = %s", (data['university'],))
@@ -43,8 +42,10 @@ def save_to_db(data, filename):
     # Статья
     cursor.execute(
         """
-        INSERT INTO articles (title, abstract, keywords, tables_count, figures_count, file_name, university_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO articles (
+            title, abstract, keywords, tables_count, figures_count,
+            file_name, university_id, issue_id
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
@@ -54,7 +55,8 @@ def save_to_db(data, filename):
             data['tables'],
             data['figures'],
             filename,
-            university_id
+            university_id,
+            issue_id  # <- Добавлен issue_id
         )
     )
     article_id = cursor.fetchone()[0]
@@ -73,7 +75,7 @@ def save_to_db(data, filename):
             (article_id, ref)
         )
 
-    print(f"✅ Статья '{data['title']}' сохранена в базу данных.")
+    print(f"✅ Статья '{data['title']}' сохранена в базу данных (выпуск ID {issue_id}).")
 
 def close_connection():
     cursor.close()

@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
     <title>Публикации</title>
     <style>
         body {
@@ -117,12 +118,83 @@
         #author-suggestions div:hover {
             background: #f0f0f0;
         }
+        #user-icon, #admin-settings {
+            background: linear-gradient(135deg, #ff416c, #ff4b2b);
+            border: none;
+            color: white;
+            font-size: 20px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 60px;
+            height: 60px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            transition: transform 0.2s, background 0.3s;
+        }
+        #user-icon:hover, #admin-settings:hover {
+            transform: scale(1.05);
+            background: linear-gradient(135deg, #ff4b2b, #ff416c);
+        }
+        #user-panel button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    padding: 8px 12px;
+    width: 180px;
+    height: 40px;
+    background: linear-gradient(135deg, #ff416c, #ff4b2b);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s, background 0.3s;
+}
+
+#user-panel button:hover {
+    background: linear-gradient(135deg, #ff4b2b, #ff416c);
+    transform: scale(1.03);
+}
+
+#user-panel .icon {
+    font-size: 18px;
+}
+
+#user-panel .text {
+    font-size: 14px;
+}
+
     </style>
 </head>
 <body>
-<div id="user-panel" style="text-align: center; margin-bottom: 20px;">
-    <button id="user-icon" onclick="toggleAuth()">👤</button>
+<div id="user-panel" style="position: fixed; top: 10px; right: 10px;">
+  <div id="user-icon-container" style="position: relative;">
+      <button id="user-icon" onclick="toggleUserMenu()">
+       <span class="icon">👤</span>
+       <span class="text">Вход</span>
+      </button>
+      <button id="admin-settings" onclick="openUploadModal()" style="display: none;">
+          <span class="icon">⚙️</span>
+          <span class="text">Загрузка выпуска</span>
+      </button>
+      <div id="user-dropdown" style="display: none; position: absolute; top: 40px; right: 0; background: #333; border-radius: 10px; padding: 10px; color: white;">
+      <div id="user-name" style="margin-bottom: 10px;">Привет, пользователь</div>
+        <button onclick="openIssuesModal()"> Изменить выпуск</button><br>
+        <button onclick="openFunctionModal()"> Изменить функцию</button><br>
+        <button onclick="logout()"> Выйти</button>
+
+
+
+    </div>
+  </div>
 </div>
+
 <div id="map" style="height: 500px; border-radius: 15px; margin-bottom: 30px;"></div>
 <div id="modal-auth" class="modal">
     <div class="modal-content">
@@ -152,6 +224,17 @@
 </div>
 
 
+<div id="check-modal" class="modal">
+  <div class="modal-content" style="max-height: 80vh; overflow-y: auto; width: 600px;">
+    <span class="close" onclick="closeCheckModal()">&times;</span>
+    <h3>Выберите статью:</h3>
+    <select id="article-select" size="10" style="width: 100%; padding: 5px; margin-bottom: 10px;"></select>
+    <button onclick="checkRequirements()">Проверить</button>
+    <pre id="check-result" style="text-align:left; background:white; color:black; padding:10px; border-radius:8px; font-family:monospace; white-space:pre-wrap;"></pre>
+  </div>
+</div>
+
+
 <div class="container">
     <div class="articles" id="articles-list">Загрузка статей...</div>
     <div class="filters">
@@ -175,14 +258,56 @@
         <button onclick="resetFilters()" style="background: gray;">Сбросить</button>
 
         <hr style="margin: 20px 0;">
-        <label>Поиск по аннотациям и заголовкам</label>
         <input type="text" id="semantic-query" placeholder="Введите запрос...">
         <button onclick="semanticSearch()">Найти статьи</button>
+        <hr style="margin: 20px 0;">
+        <button onclick="openCheckModal()">Проверить на формальные требования</button>
+        <hr style="margin: 20px 0;">
+
+
+
 
     </div>
 </div>
+<div id="upload-modal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeUploadModal()">&times;</span>
+    <h3>Загрузить выпуск</h3>
+    <form id="upload-form">
+        <input type="text" id="issue-title" placeholder="Название выпуска" required>
+        <input type="number" id="issue-year" placeholder="Год выпуска" required>
+        <label>PDF файл:</label>
+        <input type="file" id="issue-pdf" accept=".pdf" required>
+        <button type="submit">Загрузить</button>
+    </form>
+  </div>
+</div>
+<div id="issues-modal" class="modal">
+    <div class="modal-content" style="max-height: 80vh; overflow-y: auto;">
+        <span class="close" onclick="closeIssuesModal()">&times;</span>
+        <h3>Выберите выпуски</h3>
+        <form id="issues-form">
+            <div id="issues-list">Загрузка...</div>
+            <button type="submit">Выбрать</button>
+        </form>
+    </div>
+</div>
+
+<div id="function-modal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeFunctionModal()">&times;</span>
+    <h3>Выберите функцию</h3>
+    <select id="function-select" style="width:100%; margin-bottom:10px;">
+      <option value="filter">Фильтрация</option>
+      <option value="search">Семантический поиск</option>
+      <option value="check">Проверка требований</option>
+    </select>
+    <button onclick="confirmFunction()">Продолжить</button>
+  </div>
+</div>
 
 <script>
+
 let isLoggedIn = false;
 let allArticles = [];
 let filters = {};
@@ -202,15 +327,7 @@ function showLogin() {
     document.getElementById('register-section').style.display = 'none';
     document.getElementById('login-section').style.display = 'block';
 }
-window.addEventListener('DOMContentLoaded', () => {
-    const user = localStorage.getItem('loggedInUser');
-    if (user) {
-        isLoggedIn = true;
-        unlockService();
-        document.getElementById('welcome-section').style.display = 'block';
-        document.getElementById('welcome-message').textContent = `Привет, ${user}!`;
-    }
-});
+
 
 async function login() {
     const username = document.getElementById('username').value.trim();
@@ -223,15 +340,26 @@ async function login() {
     try {
         const response = await fetch('/login', { method: 'POST', body: formData });
         if (response.ok) {
-            const data = await response.json();  // <-- Сначала получили ответ!
+            const data = await response.json();
             isLoggedIn = true;
-            localStorage.setItem('loggedInUser', data.username); // <-- Только теперь сохраняем!
+            localStorage.setItem('loggedInUser', data.username);
+            localStorage.setItem('userId', data.user_id);
+            localStorage.setItem('role', data.role);
+
+            if (data.role === 'admin') {
+                document.getElementById('admin-settings').style.display = 'inline-block';
+            }
 
             document.getElementById('login-section').style.display = 'none';
             document.getElementById('register-section').style.display = 'none';
-            document.getElementById('welcome-section').style.display = 'block';
-            document.getElementById('welcome-message').textContent = `Привет, ${data.username}!`;
+            document.getElementById('user-name').textContent = `Привет, ${data.username}`;
+
             unlockService();
+
+            if (data.role !== 'admin') {
+                openIssuesModal();  // только обычным пользователям
+            }
+
         } else {
             alert("Ошибка входа. Неверный логин или пароль.");
         }
@@ -239,6 +367,8 @@ async function login() {
         console.error("Ошибка:", error);
     }
 }
+
+
 
 
 async function register() {
@@ -256,8 +386,12 @@ async function register() {
         });
 
         if (response.ok) {
-            alert("Регистрация успешна! Теперь войдите.");
-            showLogin();
+            const result = await response.json();
+            alert("Регистрация успешна! Теперь выберите выпуски.");
+            localStorage.setItem('loggedInUser', username);
+            localStorage.setItem('userId', result.user_id);  // Сохраняем user_id
+            openIssuesModal();  // Открываем модалку выбора выпусков
+            showLogin();  // Показываем форму логина (если надо)
         } else {
             const error = await response.json();
             alert("Ошибка регистрации: " + error.detail);
@@ -267,6 +401,7 @@ async function register() {
     }
 }
 
+
 function logout() {
     isLoggedIn = false;
     lockService();
@@ -275,6 +410,12 @@ function logout() {
     document.getElementById('login-section').style.display = 'block';
     document.getElementById('username').value = "";
     document.getElementById('password').value = "";
+    document.getElementById('user-dropdown').style.display = 'none';
+    document.getElementById('admin-settings').style.display = 'none'; //  скрываем настройку при выходе
+
+    localStorage.removeItem('selectedFunction');
+    localStorage.removeItem('role');
+
     localStorage.removeItem('loggedInUser');
 
 }
@@ -288,20 +429,72 @@ function lockService() {
 }
 
 function unlockService() {
+    const func = localStorage.getItem("selectedFunction");
+    const role = localStorage.getItem("role");
+
     document.getElementById('articles-list').style.pointerEvents = 'auto';
     document.querySelector('.filters').style.pointerEvents = 'auto';
     document.getElementById('articles-list').style.opacity = '1';
     document.querySelector('.filters').style.opacity = '1';
+
+    // Скрыть всё
+    document.querySelectorAll(".filters > *").forEach(el => el.style.display = "none");
+
+    if (role === 'admin') {
+        // Админу показываем всё сразу
+        document.querySelectorAll(".filters > *").forEach(el => el.style.display = "block");
+        document.querySelectorAll(".filters label").forEach(el => el.style.display = "block");
+        return;
+    }
+
+    if (func === "filter") {
+        const elements = [
+            "#author-search",
+            "#keywords-range", "#keywords-value",
+            "#figures-range", "#figures-value",
+            "#tables-range", "#tables-value",
+            "button[onclick='applyFilters()']",
+            "button[onclick='resetFilters()']"
+        ];
+        elements.forEach(selector => {
+            const el = document.querySelector(selector);
+            if (el) el.style.display = "block";
+        });
+        document.querySelectorAll(".filters label").forEach(el => el.style.display = "block");
+    } else if (func === "search") {
+        document.querySelectorAll(".filters label").forEach(el => el.style.display = "none");
+        document.getElementById("semantic-query").style.display = "block";
+        document.querySelector('button[onclick="semanticSearch()"]').style.display = "block";
+    } else if (func === "check") {
+        document.querySelector('button[onclick="openCheckModal()"]').style.display = "block";
+    }
 }
 
+
+
 async function loadArticles() {
-    const response = await fetch('/articles');
+    const user_id = localStorage.getItem('userId');
+    const selectedIssues = JSON.parse(localStorage.getItem('selectedIssues') || '[]');
+    let url = '/articles';
+    if (user_id) {
+        url += `?user_id=${user_id}`;
+    }
+    if (selectedIssues.length > 0) {
+        const issuesParam = selectedIssues.map(id => `issue_ids=${id}`).join('&');
+        url += user_id ? '&' + issuesParam : '?' + issuesParam;
+    }
+
+    const response = await fetch(url);
     const data = await response.json();
     allArticles = data.articles;
     filters = data.filters;
     setupFilters();
     renderArticles(allArticles);
 }
+
+
+
+
 
 async function loadAuthors() {
     const response = await fetch('/authors');
@@ -388,35 +581,263 @@ async function semanticSearch() {
 function filterAuthors() {
     const input = document.getElementById('author-search');
     const suggestions = document.getElementById('author-suggestions');
-    const value = input.value.toLowerCase();
+    const value = input.value.toLowerCase().trim();
     suggestions.innerHTML = '';
 
-    if (value) {
-        const filtered = allAuthors.filter(author => {
-            const firstDot = author.indexOf('.');
-            const secondDot = author.indexOf('.', firstDot + 1);
-            if (secondDot !== -1) {
-                const lastName = author.slice(secondDot + 2).toLowerCase();
-                return lastName.startsWith(value);
-            }
-            return false;
-        });
+    if (!value) return;
 
-        filtered.forEach(author => {
-            const div = document.createElement('div');
-            div.textContent = author;
-            div.onclick = () => {
-                input.value = author;
-                suggestions.innerHTML = '';
-            };
-            suggestions.appendChild(div);
-        });
+    const filtered = allAuthors.filter(author => {
+        if (!author || typeof author !== 'string') return false;
+        return author.toLowerCase().includes(value);
+    });
+
+    filtered.forEach(author => {
+        const div = document.createElement('div');
+        div.textContent = author;
+        div.onclick = () => {
+            input.value = author;
+            suggestions.innerHTML = '';
+        };
+        suggestions.appendChild(div);
+    });
+}
+
+
+
+
+function openCheckModal() {
+    const modal = document.getElementById("check-modal");
+    const select = document.getElementById("article-select");
+    select.innerHTML = '';
+    allArticles.forEach(article => {
+        const option = document.createElement('option');
+        option.value = article.id;
+        option.textContent = article.title;
+        select.appendChild(option);
+    });
+    modal.style.display = "block";
+}
+
+function closeCheckModal() {
+    document.getElementById("check-modal").style.display = "none";
+}
+
+async function checkRequirements() {
+    const id = document.getElementById("article-select").value;
+    const resultEl = document.getElementById("check-result");
+    resultEl.textContent = " Проверка...";
+
+    try {
+        const response = await fetch(`/check_requirements/${id}`);
+        const data = await response.json();
+
+        if (data.error) {
+            resultEl.textContent = ` Ошибка: ${data.error}`;
+            return;
+        }
+
+        let report = ` Проверка завершена\n\n`;
+        report += ` Балл: ${data.score}/100\n\n`;
+
+        report += ` Нарушения:\n`;
+        if (data.violations.length === 0) {
+            report += ` - Нет нарушений\n`;
+        } else {
+            data.violations.forEach(v => {
+                report += ` - ${v}\n`;
+            });
+        }
+
+        report += `\n Рекомендации:\n`;
+        if (data.recommendations.length === 0) {
+            report += ` - Нет рекомендаций\n`;
+        } else {
+            data.recommendations.forEach(r => {
+                report += ` - ${r}\n`;
+            });
+        }
+        if (data.checks_summary) {
+            report += `\nПроверки:\n${data.checks_summary.map(s => ' - ' + s).join('\n')}`;
+        }
+
+
+        report += `\n Структура:\n`;
+        for (const [key, val] of Object.entries(data.structure_check)) {
+            report += ` - ${key}: ${val ? '✅' : '❌'}\n`;
+        }
+
+        report += `\n Подробности:\n`;
+        report += ` - Слов в аннотации: ${data.annotation_words}\n`;
+        report += ` - Ключевых слов: ${data.keyword_count}\n`;
+        report += ` - Источников в тексте: ${data.references_found}\n`;
+
+        resultEl.textContent = report;
+    } catch (error) {
+        resultEl.textContent = " Произошла ошибка при проверке статьи.";
+        console.error(error);
     }
 }
 
-lockService();
-loadArticles();
-loadAuthors();
+document.getElementById("upload-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData();
+    formData.append("title", document.getElementById("issue-title").value);
+    formData.append("year", document.getElementById("issue-year").value);
+    formData.append("file", document.getElementById("issue-pdf").files[0]);
+
+    try {
+        const res = await fetch("/upload_issue", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.message) {
+            alert(data.message);
+            // перезагрузи статьи, если выпуск добавлен:
+            loadArticles();
+        } else if (data.error) {
+            alert("Ошибка: " + data.error);
+        } else {
+            alert("Неизвестный ответ от сервера.");
+        }
+    } catch (error) {
+        alert("Ошибка загрузки выпуска.");
+        console.error(error);
+    }
+});
+
+async function openIssuesModal() {
+    const response = await fetch('/issues');
+    const issues = await response.json();
+
+    const issuesList = document.getElementById('issues-list');
+    issuesList.innerHTML = '';
+
+    issues.forEach(issue => {
+        const div = document.createElement('div');
+        div.innerHTML = `<input type="checkbox" name="issue" value="${issue.id}"> ${issue.title} (${issue.year})`;
+        issuesList.appendChild(div);
+    });
+
+    document.getElementById('issues-modal').style.display = 'block';
+}
+
+function closeIssuesModal() {
+    document.getElementById('issues-modal').style.display = 'none';
+}
+
+document.getElementById('issues-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const checkboxes = document.querySelectorAll('#issues-list input[type="checkbox"]:checked');
+    const issueIds = Array.from(checkboxes).map(cb => cb.value);
+
+    if (issueIds.length === 0) {
+        alert("Выберите хотя бы один выпуск.");
+        return;
+    }
+
+    const user = localStorage.getItem('loggedInUser');
+    if (!user) {
+        alert("Сначала войдите в систему.");
+        return;
+    }
+
+    const user_id = localStorage.getItem('userId');
+    if (!user_id) {
+        alert("Не удалось определить ID пользователя.");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('user_id', user_id);
+    issueIds.forEach(id => formData.append('issue_ids', id));
+
+    const response = await fetch('/select_issues', {
+        method: 'POST',
+        body: formData
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+        alert(data.message);
+        localStorage.setItem('selectedIssues', JSON.stringify(issueIds));
+        closeIssuesModal();
+
+        // 👇 показываем выбор функции только если не выбрана
+        if (!localStorage.getItem("selectedFunction")) {
+            document.getElementById("function-modal").style.display = "block";
+        } else {
+            unlockService(); // просто обновим интерфейс
+            loadArticles();  // перезагрузим статьи
+        }
+    } else {
+        alert("Ошибка: " + data.detail);
+    }
+});
+
+function openFunctionModal() {
+    document.getElementById("function-modal").style.display = "block";
+}
+function closeFunctionModal() {
+    document.getElementById("function-modal").style.display = "none";
+}
+
+
+function confirmFunction() {
+    const selectedFunction = document.getElementById("function-select").value;
+    localStorage.setItem("selectedFunction", selectedFunction);
+    closeFunctionModal();
+    unlockService();
+    loadArticles();
+}
+
+function toggleUserMenu() {
+    const user = localStorage.getItem("loggedInUser");
+    const menu = document.getElementById('user-dropdown');
+
+    if (!user) {
+        toggleAuth(); // показываем окно входа
+        return;
+    }
+
+    // Если авторизован — показываем панель
+    menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+}
+function openUploadModal() {
+    document.getElementById('upload-modal').style.display = 'block';
+}
+
+function closeUploadModal() {
+    document.getElementById('upload-modal').style.display = 'none';
+}
+
+
+
+window.addEventListener('DOMContentLoaded', () => {
+    const user = localStorage.getItem('loggedInUser');
+    if (user) {
+        isLoggedIn = true;
+        document.getElementById('user-name').textContent = `Привет, ${user}`;
+        unlockService();
+
+        const role = localStorage.getItem('role');
+        if (role === 'admin') {
+            document.getElementById('admin-settings').style.display = 'inline-block';
+        } else {
+            document.getElementById('admin-settings').style.display = 'none'; // 💥 НЕТ ЭТОЙ СТРОКИ!
+        }
+    } else {
+        lockService();
+    }
+
+    loadArticles();
+    loadAuthors();
+});
+
 </script>
 
 </body>
