@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Админ-панель</title>
+</head>
+<body>
+    <h1>Админ-панель</h1>
+    <p>Добро пожаловать в панель администратора.</p>
+
+    <ul>
+        <li><a href="/admin/user_count" target="_blank">Количество пользователей</a></li>
+        <li><a href="/admin/article_views" target="_blank">Просмотры статей</a></li>
+        <li><a href="#" onclick="deleteInactive()">Удалить неактивных</a></li>
+    </ul>
+
+    <p id="result"></p>
+
+    <script>
+        async function deleteInactive() {
+            const res = await fetch("/admin/delete_inactive", { method: "DELETE" });
+            const data = await res.json();
+            document.getElementById("result").textContent = data.message;
+        }
+    </script>
+</body>
+</html>
