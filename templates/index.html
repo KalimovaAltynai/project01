@@ -183,6 +183,7 @@
           <span class="icon">⚙️</span>
           <span class="text">Загрузка выпуска</span>
       </button>
+      <button id="admin-nav-btn" onclick="location.href='/static/admin.html'">Админ. панель</button>
       <div id="user-dropdown" style="display: none; position: absolute; top: 40px; right: 0; background: #333; border-radius: 10px; padding: 10px; color: white;">
       <div id="user-name" style="margin-bottom: 10px;">Привет, пользователь</div>
         <button onclick="openIssuesModal()"> Изменить выпуск</button><br>
@@ -238,6 +239,7 @@
 <div class="container">
     <div class="articles" id="articles-list">Загрузка статей...</div>
     <div class="filters">
+        <label><input type="checkbox" id="filter-passed"> Только статьи, соответствующие требованиям</label>
         <label>Поиск автора</label>
         <input type="text" id="author-search" placeholder="Введите автора..." oninput="filterAuthors()" autocomplete="off">
         <div id="author-suggestions"></div>
@@ -260,8 +262,19 @@
         <hr style="margin: 20px 0;">
         <input type="text" id="semantic-query" placeholder="Введите запрос...">
         <button onclick="semanticSearch()">Найти статьи</button>
-        <hr style="margin: 20px 0;">
-        <button onclick="openCheckModal()">Проверить на формальные требования</button>
+         <hr style="margin: 20px 0;">
+        <label for="cluster-query" style="display:none;">Аннотация:</label>
+        <textarea id="cluster-query" placeholder="Введите аннотацию для кластерного поиска..."
+                  style="display:none; width:100%; height:100px; resize: vertical;"></textarea>
+
+        <label for="cluster-file" style="display:none;">Или загрузите файл .txt:</label>
+        <input type="file" id="cluster-file" accept=".txt" style="display:none; margin-bottom: 10px;">
+
+        <button id="cluster-search-btn" onclick="clusterSearch()"
+                style="display:none; background:#3a7; color:white; padding:10px 20px; border:none; border-radius:6px;">
+          🔎 Найти по кластерам
+        </button>
+
         <hr style="margin: 20px 0;">
 
 
@@ -300,9 +313,9 @@
     <select id="function-select" style="width:100%; margin-bottom:10px;">
       <option value="filter">Фильтрация</option>
       <option value="search">Семантический поиск</option>
-      <option value="check">Проверка требований</option>
+      <option value="cluster">Кластерный поиск</option>
     </select>
-    <button onclick="confirmFunction()">Продолжить</button>
+    <button onclick="confirmFunction()" style="margin-top: 10px;">Выбрать</button>
   </div>
 </div>
 
@@ -348,6 +361,7 @@ async function login() {
 
             if (data.role === 'admin') {
                 document.getElementById('admin-settings').style.display = 'inline-block';
+                document.getElementById('admin-nav-btn').style.display = 'inline-block';
             }
 
             document.getElementById('login-section').style.display = 'none';
@@ -367,9 +381,6 @@ async function login() {
         console.error("Ошибка:", error);
     }
 }
-
-
-
 
 async function register() {
     const username = document.getElementById('new-username').value.trim();
@@ -412,7 +423,7 @@ function logout() {
     document.getElementById('password').value = "";
     document.getElementById('user-dropdown').style.display = 'none';
     document.getElementById('admin-settings').style.display = 'none'; //  скрываем настройку при выходе
-
+    document.getElementById('admin-nav-btn').style.display = 'none';
     localStorage.removeItem('selectedFunction');
     localStorage.removeItem('role');
 
@@ -432,57 +443,105 @@ function unlockService() {
     const func = localStorage.getItem("selectedFunction");
     const role = localStorage.getItem("role");
 
-    document.getElementById('articles-list').style.pointerEvents = 'auto';
-    document.querySelector('.filters').style.pointerEvents = 'auto';
-    document.getElementById('articles-list').style.opacity = '1';
-    document.querySelector('.filters').style.opacity = '1';
+    const filters = document.querySelector(".filters");
+    const articles = document.getElementById("articles-list");
+    filters.style.pointerEvents = "auto";
+    articles.style.pointerEvents = "auto";
+    filters.style.opacity = "1";
+    articles.style.opacity = "1";
 
-    // Скрыть всё
-    document.querySelectorAll(".filters > *").forEach(el => el.style.display = "none");
+    // Скрываем абсолютно все контролы фильтрации
+    [
+        "author-search",
+        "keywords-range", "keywords-value",
+        "figures-range", "figures-value",
+        "tables-range", "tables-value",
+        "semantic-query",
+        "cluster-query", "cluster-file", "cluster-search-btn"
+    ].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = "none";
+    });
+
+    // Скрываем все кнопки в filters
+    document.querySelectorAll(".filters button").forEach(btn => {
+        btn.style.display = "none";
+    });
+
+    // Скрываем все labels в filters
+    document.querySelectorAll(".filters label").forEach(label => {
+        label.style.display = "none";
+    });
 
     if (role === 'admin') {
-        // Админу показываем всё сразу
+        // Админу всё показываем
         document.querySelectorAll(".filters > *").forEach(el => el.style.display = "block");
         document.querySelectorAll(".filters label").forEach(el => el.style.display = "block");
         return;
     }
 
+    // Теперь показываем только нужное
     if (func === "filter") {
-        const elements = [
-            "#author-search",
-            "#keywords-range", "#keywords-value",
-            "#figures-range", "#figures-value",
-            "#tables-range", "#tables-value",
+        [
+            "author-search",
+            "keywords-range", "keywords-value",
+            "figures-range", "figures-value",
+            "tables-range", "tables-value"
+        ].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = "block";
+        });
+
+        document.querySelectorAll(".filters label").forEach(el => el.style.display = "block");
+
+        const btns = [
             "button[onclick='applyFilters()']",
             "button[onclick='resetFilters()']"
         ];
-        elements.forEach(selector => {
+        btns.forEach(selector => {
             const el = document.querySelector(selector);
+            if (el) el.style.display = "inline-block";
+        });
+
+    } else if (func === "search") {
+        const q = document.getElementById("semantic-query");
+        const btn = document.querySelector("button[onclick='semanticSearch()']");
+        if (q) q.style.display = "block";
+        if (btn) btn.style.display = "inline-block";
+
+    } else if (func === "cluster") {
+        ["cluster-query", "cluster-file", "cluster-search-btn"].forEach(id => {
+            const el = document.getElementById(id);
             if (el) el.style.display = "block";
         });
-        document.querySelectorAll(".filters label").forEach(el => el.style.display = "block");
-    } else if (func === "search") {
-        document.querySelectorAll(".filters label").forEach(el => el.style.display = "none");
-        document.getElementById("semantic-query").style.display = "block";
-        document.querySelector('button[onclick="semanticSearch()"]').style.display = "block";
-    } else if (func === "check") {
-        document.querySelector('button[onclick="openCheckModal()"]').style.display = "block";
     }
 }
+
+
 
 
 
 async function loadArticles() {
     const user_id = localStorage.getItem('userId');
     const selectedIssues = JSON.parse(localStorage.getItem('selectedIssues') || '[]');
-    let url = '/articles';
+    let url = new URL('/articles', window.location.origin);
+    const params = new URLSearchParams();
+
     if (user_id) {
-        url += `?user_id=${user_id}`;
+        params.append('user_id', user_id);
     }
     if (selectedIssues.length > 0) {
-        const issuesParam = selectedIssues.map(id => `issue_ids=${id}`).join('&');
-        url += user_id ? '&' + issuesParam : '?' + issuesParam;
+        selectedIssues.forEach(id => params.append('issue_ids', id));
     }
+
+// 👇 фильтр по требованиям
+    const passedOnly = document.getElementById('filter-passed').checked;
+    if (passedOnly) {
+        params.append('passed', 'true');
+    }
+
+    url.search = params.toString();
+
 
     const response = await fetch(url);
     const data = await response.json();
@@ -491,6 +550,7 @@ async function loadArticles() {
     setupFilters();
     renderArticles(allArticles);
 }
+document.getElementById('filter-passed').addEventListener('change', loadArticles);
 
 
 
@@ -523,7 +583,8 @@ function renderArticles(articles) {
     articles.forEach(article => {
         const div = document.createElement('div');
         div.className = 'article';
-        div.innerHTML = `<a href="/article/${article.id}">${article.title}</a>`;
+        const userId = localStorage.getItem("userId");
+        div.innerHTML = `<a href="/article/${article.id}?user_id=${userId}">${article.title}</a>`;
         list.appendChild(div);
     });
 }
@@ -815,6 +876,42 @@ function closeUploadModal() {
     document.getElementById('upload-modal').style.display = 'none';
 }
 
+async function clusterSearch() {
+    const queryInput = document.getElementById('cluster-query').value.trim();
+    const fileInput = document.getElementById('cluster-file').files[0];
+
+    let finalText = "";
+
+    if (fileInput) {
+        const text = await fileInput.text();
+        finalText = text.trim();
+    } else if (queryInput) {
+        finalText = queryInput;
+    }
+
+    if (!finalText) {
+        alert("Введите аннотацию или загрузите файл.");
+        return;
+    }
+
+    try {
+        const response = await fetch('/cluster_search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: finalText })
+        });
+
+        if (response.ok) {
+            const articles = await response.json();
+            renderArticles(articles);
+        } else {
+            alert("Ошибка при выполнении кластерного поиска.");
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Ошибка при выполнении запроса.");
+    }
+}
 
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -825,10 +922,12 @@ window.addEventListener('DOMContentLoaded', () => {
         unlockService();
 
         const role = localStorage.getItem('role');
-        if (role === 'admin') {
+       if (role === 'admin') {
             document.getElementById('admin-settings').style.display = 'inline-block';
+            document.getElementById('admin-nav-btn').style.display = 'inline-block';
         } else {
-            document.getElementById('admin-settings').style.display = 'none'; // 💥 НЕТ ЭТОЙ СТРОКИ!
+            document.getElementById('admin-settings').style.display = 'none';
+            document.getElementById('admin-nav-btn').style.display = 'none';
         }
     } else {
         lockService();
@@ -836,6 +935,8 @@ window.addEventListener('DOMContentLoaded', () => {
 
     loadArticles();
     loadAuthors();
+    unlockService();  // применяет выбранную функцию при перезагрузке страницы
+
 });
 
 </script>

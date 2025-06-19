@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Панель администратора</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: linear-gradient(135deg, #6a11cb, #2575fc); color: #333; }
+    h1, h2, h3 { margin: 0 0 10px; }
+    button { cursor: pointer; transition: transform 0.2s; }
+    button:hover { transform: scale(1.03); }
+    header { background: #fff; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
+    header h1 { color: #6a11cb; }
+    header button { background: #ff416c; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; }
+    main { padding: 40px; max-width: 1200px; margin: auto; }
+    section { background: #fff; margin-bottom: 40px; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+    hr { border: none; height: 1px; background: #eee; margin: 40px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { padding: 12px 15px; text-align: left; }
+    thead { background: #6a11cb; color: #fff; }
+    tbody tr:nth-child(even) { background: #f9f9f9; }
+    tbody tr:hover { background: #eef; }
+    th { border-bottom: 2px solid #ddd; }
+    td { border-bottom: 1px solid #eee; }
+    input[type="text"], input[type="password"], input[type="date"], select { width: 100%; padding: 8px 10px; margin: 6px 0 12px; border: 1px solid #ccc; border-radius: 6px; }
+    .flex-row { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+    .flex-row label { margin: 0; }
+    .flex-row input { max-width: 200px; }
+    .btn { padding: 10px 20px; border: none; border-radius: 8px; color: #fff; background: linear-gradient(135deg, #ff416c, #ff4b2b); }
+    .btn.secondary { background: #ccc; color: #333; }
+    #views-chart, #downloads-chart { background: #fafafa; border: 1px solid #ddd; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Панель администратора</h1>
+    <button onclick="logout()">Выйти</button>
+  </header>
+  <main>
+
+    <!-- ✅ Добавлено: Управление пользователями -->
+<section id="user-management">
+      <h2>Управление пользователями</h2>
+      <button class="btn" onclick="showCreateUserForm()">Добавить пользователя</button>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Логин</th>
+            <th>Роль</th>
+            <th>Зарегистрирован</th>
+            <th>Последний вход</th>
+            <th>Действия</th>
+          </tr>
+        </thead>
+        <tbody id="users-table-body"></tbody>
+      </table>
+
+      <div id="user-form" style="display:none; margin-top:30px;">
+        <h3 id="user-form-title">Добавить пользователя</h3>
+        <input type="hidden" id="form-user-id">
+        <label>Логин:</label>
+        <input type="text" id="form-username" placeholder="Введите логин">
+        <label>Пароль:</label>
+        <input type="password" id="form-password" placeholder="Введите пароль">
+        <label>Роль:</label>
+        <select id="form-role">
+          <option value="user">Пользователь</option>
+          <option value="admin">Администратор</option>
+        </select>
+        <div style="margin-top:20px; display:flex; gap:10px;">
+          <button class="btn" onclick="submitUserForm()">Сохранить</button>
+          <button class="btn secondary" onclick="hideUserForm()">Отмена</button>
+        </div>
+      </div>
+    </section>
+
+    <hr>
+    <section id="user-logs">
+      <h2>Журнал действий пользователей</h2>
+      <table>
+        <thead><tr><th>ID</th><th>Пользователь</th><th>Действие</th><th>Время</th></tr></thead>
+        <tbody id="logs-table-body"></tbody>
+      </table>
+    </section>
+
+    <!-- Просмотры -->
+    <section id="views-report">
+      <h2>Отчет по просмотрам статей</h2>
+      <div class="flex-row">
+        <label>С:</label><input type="date" id="views-start">
+        <label>По:</label><input type="date" id="views-end">
+        <button class="btn" onclick="loadViewsReport()">Загрузить</button>
+      </div>
+      <div id="views-chart" style="width:100%; height:300px; margin-top:20px;"></div>
+      <h3 style="margin-top:40px;">Детали просмотров</h3>
+      <table>
+        <thead><tr><th>Статья</th><th>Дата</th><th>Просмотров</th></tr></thead>
+        <tbody id="views-table-body"></tbody>
+      </table>
+    </section>
+
+    <hr>
+
+    <!-- Скачивания -->
+    <section id="downloads-report">
+      <h2>Отчёт по скачиваниям статей</h2>
+      <div class="flex-row">
+        <label>С:</label><input type="date" id="dl-start">
+        <label>По:</label><input type="date" id="dl-end">
+        <button class="btn" onclick="loadDownloadsReport()">Загрузить</button>
+      </div>
+      <div id="downloads-chart" style="width:100%; height:300px; margin-top:20px;"></div>
+      <h3 style="margin-top:40px;">Детали скачиваний</h3>
+      <table>
+        <thead><tr><th>Статья</th><th>Дата</th><th>Скачиваний</th></tr></thead>
+        <tbody id="downloads-table-body"></tbody>
+      </table>
+    </section>
+
+    <section id="clustering-panel">
+    <h2>Кластеризация аннотаций</h2>
+    <form id="cluster-form">
+      <label>Выберите выпуски:</label>
+      <div id="cluster-issues"></div>
+      <label>Количество кластеров:</label>
+      <input type="number" name="num_clusters" id="num_clusters" min="2" value="3" required>
+      <button class="btn" type="submit">Запустить кластеризацию</button>
+    </form>
+    <div id="cluster-result" style="margin-top:20px;">
+    </div>
+  </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+  <script>
+    async function logout() {
+      await fetch('/logout', { method: 'POST' });
+      location.href = '/';
+    }
+
+    // ✅ Пользователи
+    async function loadUsers() {
+      const res = await fetch('/admin/users');
+      const { users } = await res.json();
+      const tbody = document.getElementById('users-table-body');
+      tbody.innerHTML = '';
+      users.forEach(u => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${u.id}</td>
+          <td>${u.username}</td>
+          <td>${u.role}</td>
+          <td>${new Date(u.created_at).toLocaleString()}</td>
+          <td>${new Date(u.last_login).toLocaleString()}</td>
+          <td>
+            <button class="btn secondary" onclick="editUser(${u.id},'${u.username}','${u.role}')">Изменить</button>
+            <button class="btn secondary" style="background:#c00;color:#fff;" onclick="deleteUser(${u.id})">Удалить</button>
+          </td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function showCreateUserForm() {
+      document.getElementById('user-form-title').textContent = 'Добавить пользователя';
+      document.getElementById('form-user-id').value = '';
+      document.getElementById('form-username').value = '';
+      document.getElementById('form-password').value = '';
+      document.getElementById('form-role').value = 'user';
+      document.getElementById('user-form').style.display = 'block';
+    }
+
+    function hideUserForm() {
+      document.getElementById('user-form').style.display = 'none';
+    }
+
+    function editUser(id, username, role) {
+      document.getElementById('user-form-title').textContent = 'Изменить пользователя';
+      document.getElementById('form-user-id').value = id;
+      document.getElementById('form-username').value = username;
+      document.getElementById('form-password').value = '';
+      document.getElementById('form-role').value = role;
+      document.getElementById('user-form').style.display = 'block';
+    }
+
+    async function submitUserForm() {
+      const id = document.getElementById('form-user-id').value;
+      const fd = new FormData();
+      fd.append('username', document.getElementById('form-username').value);
+      const pw = document.getElementById('form-password').value;
+      if (pw) fd.append('password', pw);
+      fd.append('role', document.getElementById('form-role').value);
+      const url = id ? `/admin/users/${id}` : '/admin/users';
+      const method = id ? 'PUT' : 'POST';
+      const res = await fetch(url, { method, body: fd });
+      if (res.ok) {
+        hideUserForm();
+        loadUsers();
+      } else {
+        alert('Ошибка сохранения');
+      }
+    }
+
+    async function deleteUser(id) {
+      if (!confirm('Удалить пользователя?')) return;
+      const res = await fetch(`/admin/users/${id}`, { method: 'DELETE' });
+      if (res.ok) loadUsers();
+      else alert('Ошибка удаления');
+    }
+
+    // 📊 Просмотры
+    async function loadViewsReport() {
+      const start = document.getElementById('views-start').value;
+      const end = document.getElementById('views-end').value;
+      const res = await fetch(`/admin/reports/views?start=${start}&end=${end}`);
+      const { reports } = await res.json();
+      const chartV = echarts.init(document.getElementById('views-chart'));
+      const dates = [...new Set(reports.map(r => r.view_date))].sort();
+      const counts = dates.map(d => reports.filter(r => r.view_date === d).reduce((sum, r) => sum + r.view_count, 0));
+      chartV.setOption({
+        xAxis: {
+          type: 'category',
+          data: dates,
+          name: 'Дата',
+          nameLocation: 'middle',
+          nameGap: 30
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Число просмотров',
+          nameLocation: 'middle',
+          nameGap: 50
+        },
+        series: [{ data: counts, type: 'scatter' }],
+        tooltip: { trigger: 'axis' }
+      });
+      const tbody = document.getElementById('views-table-body');
+      tbody.innerHTML = '';
+      reports.sort((a,b) => b.view_count - a.view_count).forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${r.title}</td><td>${new Date(r.view_date).toLocaleDateString()}</td><td>${r.view_count}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // 📥 Скачивания
+    async function loadDownloadsReport() {
+      const start = document.getElementById('dl-start').value;
+      const end = document.getElementById('dl-end').value;
+      const res = await fetch(`/admin/reports/downloads?start=${start}&end=${end}`);
+      const { reports } = await res.json();
+      const chartD = echarts.init(document.getElementById('downloads-chart'));
+      const dates = [...new Set(reports.map(r => r.download_date))].sort();
+      const counts = dates.map(d => reports.filter(r => r.download_date === d).reduce((sum, r) => sum + r.download_count, 0));
+      chartD.setOption({
+        xAxis: {
+          type: 'category',
+          data: dates,
+          name: 'Дата',
+          nameLocation: 'middle',
+          nameGap: 30
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Число скачиваний',
+          nameLocation: 'middle',
+          nameGap: 50
+        },
+        series: [{ data: counts, type: 'scatter' }],
+        tooltip: { trigger: 'axis' }
+      });
+      const tbody = document.getElementById('downloads-table-body');
+      tbody.innerHTML = '';
+      reports.sort((a,b) => b.download_count - a.download_count).forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${r.title}</td><td>${new Date(r.download_date).toLocaleDateString()}</td><td>${r.download_count}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+    async function loadUserLogs() {
+      const res = await fetch('/admin/logs');
+      const { logs } = await res.json();
+      const tbody = document.getElementById('logs-table-body');
+      tbody.innerHTML = '';
+      logs.forEach(log => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${log.id}</td><td>${log.username}</td><td>${log.action}</td><td>${new Date(log.action_time).toLocaleString()}</td>`;
+        tbody.appendChild(tr);
+      });
+}
+
+
+    document.addEventListener('DOMContentLoaded', () => {
+      loadUsers(); // ✅ загружаем пользователей
+      const today = new Date().toISOString().slice(0,10);
+      document.getElementById('views-start').value = today;
+      document.getElementById('views-end').value = today;
+      document.getElementById('dl-start').value = today;
+      document.getElementById('dl-end').value = today;
+      loadViewsReport();
+      loadDownloadsReport();
+      loadUserLogs();
+
+    });
+
+           async function loadClusterIssues() {
+      const res = await fetch("/issues");
+      const issues = await res.json();
+      const container = document.getElementById("cluster-issues");
+      container.innerHTML = "";
+      issues.forEach(i => {
+        container.innerHTML += `<label><input type="checkbox" name="issue_ids" value="${i.id}"> ${i.title} (${i.year})</label><br>`;
+      });
+    }
+
+    document.getElementById("cluster-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const formData = new FormData();
+      const checkboxes = form.querySelectorAll("input[name='issue_ids']:checked");
+      checkboxes.forEach(cb => formData.append("issue_ids", cb.value));
+      formData.append("num_clusters", form.num_clusters.value);
+
+      const res = await fetch("/admin/clusterize", {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await res.json();
+      if (data.plot_html) {
+      const iframe = document.createElement("iframe");
+      iframe.style.width = "100%";
+      iframe.style.height = "700px";
+      iframe.style.border = "none";
+      iframe.srcdoc = atob(data.plot_html);  // ⬅️ декодируем HTML-график
+      const container = document.getElementById("cluster-result");
+      container.innerHTML = "";  // очистка предыдущего графика
+      container.appendChild(iframe);
+    } else {
+      alert(data.error || "Ошибка кластеризации");
+    }
+    });
+   document.addEventListener("DOMContentLoaded", loadClusterIssues);
+  </script>
+</body>
+</html>

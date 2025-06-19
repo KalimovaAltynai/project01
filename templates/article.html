@@ -52,7 +52,7 @@
     <p><strong>Аннотация:</strong> {{ article.abstract }}</p>
     <p><strong>Ключевые слова:</strong> {{ article.keywords }}</p>
     <p><strong>Таблиц:</strong> {{ article.tables_count }}, <strong>Рисунков:</strong> {{ article.figures_count }}</p>
-    <a href="/download/{{ article.file_name }}" class="button" download>Скачать статью</a>
+    <a href="/download/{{ article.file_name }}?user_id={{ user_id }}" class="button" download>Скачать статью</a>
     <br><br>
     <a href="/" class="button">← Назад к списку</a>
 </div>

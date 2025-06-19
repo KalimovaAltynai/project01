@@ -1,6 +1,12 @@
-from parser_tools import extract_toc_from_pdf, parse_pdf_metadata, process_new_issue
+import base64
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
+from datetime import datetime, date
 import shutil
-from fastapi import UploadFile, File, Form
 from fastapi import UploadFile, File
 from fastapi import FastAPI, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, FileResponse
@@ -15,9 +21,9 @@ import os
 import bcrypt
 from fastapi import Body
 from sentence_transformers import SentenceTransformer
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
-import re
 import inspect
 import inspect2
 inspect.getargspec = inspect2.getargspec
@@ -68,13 +74,19 @@ async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 # Получение всех статей
+from typing import Optional, List
+from fastapi import Query
+
 @app.get("/articles")
-def get_articles(user_id: Optional[int] = Query(None), issue_ids: Optional[List[int]] = Query(None)):
+def get_articles(
+    user_id: Optional[int] = Query(None),
+    issue_ids: Optional[List[int]] = Query(None),
+    passed: Optional[bool] = Query(None)  # 👈 новый параметр фильтрации
+):
     with conn.cursor(cursor_factory=RealDictCursor) as cursor:
 
         final_issue_ids = []
 
-        # Если issue_ids переданы в запросе — используем их
         if issue_ids:
             final_issue_ids = issue_ids
         elif user_id:
@@ -84,18 +96,26 @@ def get_articles(user_id: Optional[int] = Query(None), issue_ids: Optional[List[
             issue_rows = cursor.fetchall()
             final_issue_ids = [row['issue_id'] for row in issue_rows]
 
-        if final_issue_ids:
-            cursor.execute("""
-                SELECT id, title, abstract, keywords, tables_count, figures_count, file_name
-                FROM articles
-                WHERE issue_id = ANY(%s)
-            """, (final_issue_ids,))
-        else:
-            cursor.execute("""
-                SELECT id, title, abstract, keywords, tables_count, figures_count, file_name
-                FROM articles
-            """)
+        # === Сборка SQL-запроса ===
+        base_query = """
+            SELECT id, title, abstract, keywords, tables_count, figures_count, file_name, requirements_passed
+            FROM articles
+        """
+        conditions = []
+        params = []
 
+        if final_issue_ids:
+            conditions.append("issue_id = ANY(%s)")
+            params.append(final_issue_ids)
+
+        if passed is not None:
+            conditions.append("requirements_passed = %s")
+            params.append(passed)
+
+        if conditions:
+            base_query += " WHERE " + " AND ".join(conditions)
+
+        cursor.execute(base_query, tuple(params))
         articles = cursor.fetchall()
 
     if not articles:
@@ -129,22 +149,39 @@ def get_articles(user_id: Optional[int] = Query(None), issue_ids: Optional[List[
 
     return {"articles": articles, "filters": filters}
 
-# Одна статья по ID
+
 @app.get("/article/{article_id}", response_class=HTMLResponse)
-async def view_article(request: Request, article_id: int):
-    with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-        cursor.execute("""
-            SELECT id, title, abstract, keywords, tables_count, figures_count, file_name
-            FROM articles
-            WHERE id = %s
-        """, (article_id,))
-        article = cursor.fetchone()
+def view_article(request: Request, article_id: int, user_id: Optional[int] = Query(None)):
+    today = date.today()
 
-    if article is None:
-        raise HTTPException(status_code=404, detail="Статья не найдена")
+    # ✅ Логирование просмотра
+    if user_id:
+        log_user_action(user_id, f"Просмотр статьи ID {article_id}")
 
-    return templates.TemplateResponse("article.html", {"request": request, "article": article})
+    # ✅ Фиксация в таблице просмотров
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO article_views(article_id, view_date, view_count)
+            VALUES (%s, %s, 1)
+            ON CONFLICT (article_id, view_date)
+            DO UPDATE SET view_count = article_views.view_count + 1
+            """,
+            (article_id, today)
+        )
 
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT * FROM articles WHERE id=%s", (article_id,))
+        art = cur.fetchone()
+
+    if not art:
+        raise HTTPException(404, "Статья не найдена")
+
+    return templates.TemplateResponse("article.html", {
+        "request": request,
+        "article": art,
+        "user_id": user_id  # 👈 передаём в шаблон, чтобы подставлять в ссылку на скачивание
+    })
 # Список всех авторов
 @app.get("/authors")
 def get_authors():
@@ -159,12 +196,39 @@ def get_authors():
 
 # Скачать PDF файл
 @app.get("/download/{file_name}", response_class=FileResponse)
-def download_file(file_name: str):
+def download_file(file_name: str, user_id: Optional[int] = Query(None)):
+    # 1) Найти article_id по имени файла
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM articles WHERE file_name = %s", (file_name,))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Статья не найдена для данного файла")
+
+    article_id = row[0]
+
+    # ✅ Логирование
+    if user_id:
+        log_user_action(user_id, f"Скачал статью ID {article_id}")
+
+    # ✅ Фиксация скачивания
+    today = date.today()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO article_downloads(article_id, download_date, download_count)
+            VALUES (%s, %s, 1)
+            ON CONFLICT (article_id, download_date)
+            DO UPDATE SET download_count = article_downloads.download_count + 1
+            """,
+            (article_id, today)
+        )
+
+    # ✅ Проверка и отправка PDF
     file_path = os.path.join("articles", file_name)
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Файл не найден")
-    return FileResponse(path=file_path, filename=file_name, media_type='application/pdf')
+        raise HTTPException(status_code=404, detail="Файл не найден на сервере")
 
+    return FileResponse(path=file_path, filename=file_name, media_type="application/pdf")
 
 
 @app.post("/register")
@@ -199,9 +263,106 @@ async def login(username: str = Form(...), password: str = Form(...)):
     cursor.close()
 
     if user and bcrypt.checkpw(password.encode('utf-8'), user["password"].encode('utf-8')):
-        return {"message": "Login successful", "username": user["username"], "user_id": user["id"], "role": user["role"]}
-    else:
-        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
+        log_user_action(user["id"], "Вход в систему")
+        return {"message": "Login successful", "username": user["username"], "user_id": user["id"],"role": user["role"]}
+
+
+@app.get("/admin/users")
+def list_users():
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT id,username,role,created_at,last_login FROM users ORDER BY id")
+        users = cur.fetchall()
+    # Сериализуем datetime
+    for u in users:
+        u["created_at"] = u["created_at"].isoformat()
+        u["last_login"] = u["last_login"].isoformat()
+    return JSONResponse(jsonable_encoder({"users": users}))
+
+@app.post("/admin/users")
+def create_user(username: str = Form(...), password: str = Form(...), role: str = Form("user")):
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO users(username,password,role,created_at,last_login) "
+            "VALUES(%s,%s,%s,NOW(),NOW())",
+            (username, hashed, role)
+        )
+    return JSONResponse({"message": "User created"})
+
+@app.put("/admin/users/{user_id}")
+def update_user(
+        user_id: int,
+        username: Optional[str] = Form(None),
+        password: Optional[str] = Form(None),
+        role:     Optional[str] = Form(None)
+):
+    if not any([username, password, role]):
+        raise HTTPException(400, "Nothing to update")
+    with conn.cursor() as cur:
+        if username:
+            cur.execute("UPDATE users SET username=%s WHERE id=%s", (username, user_id))
+        if password:
+            hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+            cur.execute("UPDATE users SET password=%s WHERE id=%s", (hashed, user_id))
+        if role:
+            cur.execute("UPDATE users SET role=%s WHERE id=%s", (role, user_id))
+    return JSONResponse({"message": "User updated"})
+
+@app.delete("/admin/users/{user_id}")
+def delete_user(user_id: int):
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM users WHERE id=%s", (user_id,))
+    return JSONResponse({"message": "User deleted"})
+
+@app.get("/admin/reports/views")
+def get_views():
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT a.title, v.view_date, v.view_count
+                FROM article_views v
+                JOIN articles a ON a.id = v.article_id
+                ORDER BY v.view_date
+            """)
+            rows = cur.fetchall()
+            reports = [
+                {
+                    "title": row["title"],
+                    "view_date": row["view_date"],
+                    "view_count": row["view_count"]
+                }
+                for row in rows
+            ]
+            return {"reports": reports}
+    except Exception as e:
+        print("Ошибка при получении просмотров:", e)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# === Маршрут для скачиваний ===
+@app.get("/admin/reports/downloads")
+def get_downloads():
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT a.title, d.download_date, d.download_count
+                FROM article_downloads d
+                JOIN articles a ON a.id = d.article_id
+                ORDER BY d.download_date
+            """)
+            rows = cur.fetchall()
+            reports = [
+                {
+                    "title": row["title"],
+                    "download_date": row["download_date"],
+                    "download_count": row["download_count"]
+                }
+                for row in rows
+            ]
+            return {"reports": reports}
+    except Exception as e:
+        print("Ошибка при получении скачиваний:", e)
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 morph = pymorphy2.MorphAnalyzer()
@@ -433,6 +594,7 @@ def get_issues():
         cursor.execute("SELECT id, title, year FROM issues")
         return cursor.fetchall()
 
+
 @app.post("/select_issues")
 async def select_issues(user_id: int = Form(...), issue_ids: List[int] = Form(...)):
     with conn.cursor() as cursor:
@@ -442,4 +604,197 @@ async def select_issues(user_id: int = Form(...), issue_ids: List[int] = Form(..
                 VALUES (%s, %s)
                 ON CONFLICT DO NOTHING
             """, (user_id, issue_id))
+
+    log_user_action(user_id, f"Выбрал выпуски: {', '.join(map(str, issue_ids))}")
     return {"message": "Выпуски успешно выбраны"}
+
+@app.get("/admin/logs")
+def get_user_logs():
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT ua.id, u.username, ua.action, ua.action_time
+            FROM user_actions ua
+            JOIN users u ON ua.user_id = u.id
+            ORDER BY ua.action_time DESC
+            LIMIT 100
+        """)
+        logs = cur.fetchall()
+    return {"logs": logs}
+@app.post("/update_requirements_flags")
+def update_all_requirements():
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT id, file_name FROM articles")
+        articles = cur.fetchall()
+
+    updated = 0
+    for article in articles:
+        # Парсим текст статьи
+        file_path = os.path.join("articles", article["file_name"])
+        full_text = extract_text_from_pdf(file_path)
+
+        # Количество ссылок
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM references_list WHERE article_id = %s", (article["id"],))
+            ref_count = cur.fetchone()[0]
+
+        # Проверка
+        result = check_requirements(article, full_text, ref_count)
+        passed = result["score"] >= 85  # например, 85+ баллов считается соответствием
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE articles SET requirements_passed = %s WHERE id = %s",
+                (passed, article["id"])
+            )
+            updated += 1
+
+    return {"message": f"Обновлено {updated} статей"}
+
+@app.post("/admin/clusterize")
+async def clusterize_abstracts(request: Request):
+    try:
+        form = await request.form()
+        num_clusters = int(form.get("num_clusters", 3))
+        issue_ids = [int(i) for i in form.getlist("issue_ids")]
+
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, title, abstract FROM articles
+                WHERE issue_id = ANY(%s) AND abstract IS NOT NULL
+            """, (issue_ids,))
+            rows = cur.fetchall()
+
+        if not rows:
+            return JSONResponse(status_code=400, content={"error": "Нет аннотаций"})
+
+        df = pd.DataFrame(rows)
+        embeddings = model.encode(df["abstract"].tolist(), show_progress_bar=False)
+
+        kmeans = KMeans(n_clusters=num_clusters, random_state=42)
+        df['cluster'] = kmeans.fit_predict(embeddings)
+
+        # ⬇️ Сохраняем кластеры статей
+        with conn.cursor() as cur:
+            for i, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO annotation_clusters (article_id, cluster_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (article_id) DO UPDATE SET cluster_id = EXCLUDED.cluster_id
+                """, (row['id'], int(row['cluster'])))
+
+        # ⬇️ Сохраняем центры кластеров
+        centroids = kmeans.cluster_centers_
+        with conn.cursor() as cur:
+            for idx, vec in enumerate(centroids):
+                cur.execute("""
+                    INSERT INTO cluster_centroids (cluster_id, center_vector)
+                    VALUES (%s, %s)
+                    ON CONFLICT (cluster_id) DO UPDATE SET center_vector = EXCLUDED.center_vector
+                """, (idx, vec.tolist()))
+
+        # ⬇️ 3D визуализация
+        pca = PCA(n_components=3).fit_transform(embeddings)
+        df['x'], df['y'], df['z'] = pca[:, 0], pca[:, 1], pca[:, 2]
+
+        fig = px.scatter_3d(
+            df,
+            x='x', y='y', z='z',
+            color=df['cluster'].astype(str),
+            hover_name=df['title'],
+            title="Кластеризация аннотаций",
+            width=900, height=700
+        )
+
+        html = fig.to_html(full_html=False, include_plotlyjs='cdn')
+        encoded_html = base64.b64encode(html.encode("utf-8")).decode("utf-8")
+        return {"plot_html": encoded_html, "message": "Кластеризация завершена"}
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+
+@app.post("/cluster_search")
+async def cluster_search(data: dict = Body(...)):
+    try:
+        query = data.get("query", "").strip()
+        if not query:
+            raise HTTPException(status_code=400, detail="Пустой запрос")
+
+        # Вектор запроса
+        query_vec = model.encode([query])[0]
+
+        # Загрузка центров кластеров
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT cluster_id, center_vector FROM cluster_centroids")
+            rows = cur.fetchall()
+            cluster_centers = {r["cluster_id"]: np.array(r["center_vector"]) for r in rows}
+
+        if not cluster_centers:
+            raise HTTPException(status_code=400, detail="Центры кластеров не найдены")
+
+        # Определяем ближайший кластер
+        best_cluster = max(
+            cluster_centers.items(),
+            key=lambda kv: cosine_similarity([query_vec], [kv[1]])[0][0]
+        )[0]
+
+        # Загружаем статьи из этого кластера
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT a.id, a.title, a.abstract, a.keywords, a.tables_count, a.figures_count,
+                       a.file_name, ac.cluster_id
+                FROM articles a
+                JOIN annotation_clusters ac ON ac.article_id = a.id
+                WHERE ac.cluster_id = %s AND a.abstract IS NOT NULL
+            """, (best_cluster,))
+            rows = cur.fetchall()
+
+        if not rows:
+            return []
+
+        df = pd.DataFrame(rows)
+        embeddings = model.encode(df['abstract'].tolist(), show_progress_bar=False)
+        similarities = cosine_similarity([query_vec], embeddings)[0]
+        df['similarity'] = similarities
+
+        df = df.sort_values(by='similarity', ascending=False).head(20)
+
+        result = []
+        for i, row in df.iterrows():
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT a.name FROM authors a
+                    JOIN article_authors aa ON aa.author_id = a.id
+                    WHERE aa.article_id = %s
+                """, (row['id'],))
+                authors = [r[0] for r in cur.fetchall()]
+
+            result.append({
+                "id": row["id"],
+                "title": row["title"],
+                "abstract": row["abstract"],
+                "keywords": row["keywords"],
+                "tables_count": row["tables_count"],
+                "figures_count": row["figures_count"],
+                "file_name": row["file_name"],
+                "authors": authors
+            })
+
+        return result
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Ошибка кластерного поиска: {str(e)}")
+
+
+
+def log_user_action(user_id: int, action: str):
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO user_actions (user_id, action)
+            VALUES (%s, %s)
+        """, (user_id, action))
